@@ -12,6 +12,10 @@ class Config:
     # Google Gemini API
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     
+    # Emergency Email Configuration
+    SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'empathywave.support@gmail.com')
+    SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
+    
     # Model paths
     TEXT_MODEL_PATH = 'data/models/text_model.pkl'
     AUDIO_MODEL_PATH = 'data/models/audio_model.pkl'

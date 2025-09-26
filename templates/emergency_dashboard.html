@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmpathyWave - Emergency Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #667eea;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --success-color: #28a745;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .dashboard-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            margin: 20px;
+            padding: 30px;
+        }
+
+        .alert-card {
+            border-radius: 15px;
+            border: none;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .alert-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .alert-critical {
+            border-left: 5px solid var(--danger-color);
+        }
+
+        .alert-high {
+            border-left: 5px solid var(--warning-color);
+        }
+
+        .alert-medium {
+            border-left: 5px solid #17a2b8;
+        }
+
+        .stats-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .stats-card:hover {
+            transform: translateY(-3px);
+        }
+
+        .stats-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .critical-number {
+            color: var(--danger-color);
+        }
+
+        .high-number {
+            color: var(--warning-color);
+        }
+
+        .total-number {
+            color: var(--primary-color);
+        }
+
+        .emergency-badge {
+            background: var(--danger-color);
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .email-sent-badge {
+            background: var(--success-color);
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+        }
+
+        .timestamp {
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container-fluid">
+        <div class="dashboard-container">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="display-4 mb-2">🚨 Emergency Dashboard</h1>
+                    <p class="text-muted">Real-time monitoring of mental health alerts</p>
+                </div>
+                <div>
+                    <button class="btn btn-outline-primary" onclick="refreshDashboard()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <a href="/chat" class="btn btn-primary ms-2">
+                        <i class="fas fa-comments"></i> Back to Chat
+                    </a>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="stats-number critical-number" id="criticalCount">0</div>
+                        <div class="text-muted">Critical Alerts</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="stats-number high-number" id="highCount">0</div>
+                        <div class="text-muted">High Risk Alerts</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="stats-number total-number" id="totalAlerts">0</div>
+                        <div class="text-muted">Total Alerts Today</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="stats-number total-number" id="emailsSent">0</div>
+                        <div class="text-muted">Emails Sent</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Alerts -->
+            <div class="row">
+                <div class="col-12">
+                    <h3 class="mb-3">
+                        <i class="fas fa-exclamation-triangle text-warning"></i>
+                        Recent Emergency Alerts
+                    </h3>
+
+                    <div id="alertsList">
+                        <!-- Sample alerts for demo -->
+                        <div class="alert-card alert-critical">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h5 class="card-title">
+                                            <span class="emergency-badge">CRITICAL</span>
+                                            <span class="text-muted ms-2">User: user***@example.com</span>
+                                        </h5>
+                                        <p class="card-text">
+                                            <strong>Risk Indicators:</strong> Self-harm intentions, suicidal thoughts
+                                        </p>
+                                        <p class="card-text">
+                                            <small class="text-muted">
+                                                <i class="fas fa-envelope me-1"></i>
+                                                Parent notified: parent***@example.com
+                                                <span class="email-sent-badge ms-2">EMAIL SENT</span>
+                                            </small>
+                                        </p>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="timestamp">
+                                            <i class="fas fa-clock me-1"></i>
+                                            Sept 26, 2025 10:30 PM
+                                        </div>
+                                        <div class="mt-2">
+                                            <span class="badge bg-danger">Score: 95.5</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert-card alert-high">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h5 class="card-title">
+                                            <span class="badge bg-warning">HIGH RISK</span>
+                                            <span class="text-muted ms-2">User: student***@school.edu</span>
+                                        </h5>
+                                        <p class="card-text">
+                                            <strong>Risk Indicators:</strong> Severe depression, hopelessness
+                                        </p>
+                                        <p class="card-text">
+                                            <small class="text-muted">
+                                                <i class="fas fa-envelope me-1"></i>
+                                                Parent notified: guardian***@email.com
+                                                <span class="email-sent-badge ms-2">EMAIL SENT</span>
+                                            </small>
+                                        </p>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="timestamp">
+                                            <i class="fas fa-clock me-1"></i>
+                                            Sept 26, 2025 8:15 PM
+                                        </div>
+                                        <div class="mt-2">
+                                            <span class="badge bg-warning">Score: 72.3</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert-card alert-medium">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h5 class="card-title">
+                                            <span class="badge bg-info">MEDIUM RISK</span>
+                                            <span class="text-muted ms-2">User: teen***@email.com</span>
+                                        </h5>
+                                        <p class="card-text">
+                                            <strong>Risk Indicators:</strong> Depression symptoms, anxiety
+                                        </p>
+                                        <p class="card-text">
+                                            <small class="text-muted">
+                                                <i class="fas fa-eye me-1"></i>
+                                                Monitoring status - No immediate alert required
+                                            </small>
+                                        </p>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="timestamp">
+                                            <i class="fas fa-clock me-1"></i>
+                                            Sept 26, 2025 6:45 PM
+                                        </div>
+                                        <div class="mt-2">
+                                            <span class="badge bg-info">Score: 35.8</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <button class="btn btn-outline-primary" onclick="loadMoreAlerts()">
+                            <i class="fas fa-chevron-down"></i> Load More Alerts
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Emergency Resources -->
+            <div class="row mt-5">
+                <div class="col-12">
+                    <div class="card border-danger">
+                        <div class="card-header bg-danger text-white">
+                            <h5 class="mb-0">
+                                <i class="fas fa-life-ring me-2"></i>
+                                Emergency Resources & Crisis Hotlines
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6 class="text-danger">🆘 Immediate Crisis Support:</h6>
+                                    <ul class="list-unstyled">
+                                        <li><strong>National Suicide Prevention Lifeline:</strong> <a href="tel:988"
+                                                class="text-danger">988</a></li>
+                                        <li><strong>Crisis Text Line:</strong> Text HOME to <a href="sms:741741"
+                                                class="text-danger">741741</a></li>
+                                        <li><strong>Emergency Services:</strong> <a href="tel:911"
+                                                class="text-danger">911</a></li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6 class="text-info">📞 Additional Support:</h6>
+                                    <ul class="list-unstyled">
+                                        <li><strong>SAMHSA National Helpline:</strong> <a
+                                                href="tel:1-800-662-4357">1-800-662-HELP</a></li>
+                                        <li><strong>Teen Crisis Hotline:</strong> <a
+                                                href="tel:1-800-273-8255">1-800-273-8255</a></li>
+                                        <li><strong>LGBT National Hotline:</strong> <a
+                                                href="tel:1-888-843-4564">1-888-843-4564</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Sample dashboard functionality
+        function refreshDashboard() {
+            // In a real implementation, this would fetch real data from the server
+            console.log('Refreshing dashboard...');
+
+            // Update stats with sample animation
+            animateNumber('criticalCount', 3);
+            animateNumber('highCount', 7);
+            animateNumber('totalAlerts', 15);
+            animateNumber('emailsSent', 10);
+        }
+
+        function animateNumber(elementId, targetValue) {
+            const element = document.getElementById(elementId);
+            const currentValue = parseInt(element.textContent);
+            const increment = targetValue > currentValue ? 1 : -1;
+            const timer = setInterval(() => {
+                const current = parseInt(element.textContent);
+                if (current === targetValue) {
+                    clearInterval(timer);
+                } else {
+                    element.textContent = current + increment;
+                }
+            }, 100);
+        }
+
+        function loadMoreAlerts() {
+            console.log('Loading more alerts...');
+            // In a real implementation, this would load more alerts from the server
+            alert('No more alerts to load.');
+        }
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function () {
+            refreshDashboard();
+        });
+    </script>
+</body>
+
+</html>

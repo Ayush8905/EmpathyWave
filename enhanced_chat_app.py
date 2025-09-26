@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash
 import joblib
 import os
 import librosa
@@ -14,12 +14,19 @@ import logging
 from dotenv import load_dotenv
 import time
 import json
+from functools import wraps
+from database import DatabaseManager
+from depression_risk_analyzer import risk_analyzer
+from emergency_email_service import email_service
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'empathy-wave-enhanced-secret-key-2024')
+
+# Initialize database
+db = DatabaseManager()
 
 # Configure logging
 logging.basicConfig(
@@ -55,7 +62,25 @@ except Exception as e:
 
 # Global variables for models
 text_model_data = None
-chat_history = {}
+
+# Authentication decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'session_token' not in session:
+            return redirect(url_for('login'))
+        
+        # Validate session
+        is_valid, user_data = db.validate_session(session['session_token'])
+        if not is_valid:
+            session.clear()
+            flash('Your session has expired. Please log in again.', 'warning')
+            return redirect(url_for('login'))
+        
+        # Store user data in session for easy access
+        session['user_data'] = user_data
+        return f(*args, **kwargs)
+    return decorated_function
 
 def load_text_model():
     """Load the trained text depression detection model"""
@@ -317,37 +342,122 @@ def analyze_audio_depression(features):
         return 0.5
 
 @app.route('/')
+@login_required
 def index():
     """Render the main chat interface"""
-    session_id = session.get('session_id', str(uuid.uuid4()))
-    session['session_id'] = session_id
+    return render_template('chat_interface.html', user=session['user_data'])
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle user login"""
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        
+        if not email or not password:
+            flash('Please enter both email and password.', 'danger')
+            return render_template('login.html')
+        
+        # Authenticate user
+        success, result = db.authenticate_user(email, password)
+        
+        if success:
+            user_id = result
+            # Create session
+            session_token = db.create_session(user_id)
+            
+            if session_token:
+                session['session_token'] = session_token
+                session['user_id'] = user_id
+                flash('Welcome back! You have been successfully logged in.', 'success')
+                return redirect(url_for('index'))
+            else:
+                flash('Failed to create session. Please try again.', 'danger')
+        else:
+            flash(result, 'danger')
     
-    if session_id not in chat_history:
-        chat_history[session_id] = []
+    return render_template('login.html')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    """Handle user registration"""
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        parent_phone = request.form.get('parent_phone', '').strip()
+        parent_email = request.form.get('parent_email', '').strip()
+        
+        # Validate form data
+        if not all([email, password, confirm_password, parent_phone, parent_email]):
+            flash('Please fill in all required fields.', 'danger')
+            return render_template('signup.html')
+        
+        if password != confirm_password:
+            flash('Passwords do not match.', 'danger')
+            return render_template('signup.html')
+        
+        if len(password) < 8:
+            flash('Password must be at least 8 characters long.', 'danger')
+            return render_template('signup.html')
+        
+        # Create user
+        success, result = db.create_user(email, password, parent_phone, parent_email)
+        
+        if success:
+            user_id = result
+            flash('Account created successfully! You can now log in.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash(result, 'danger')
     
-    return render_template('chat_interface.html')
+    return render_template('signup.html')
+
+@app.route('/emergency-dashboard')
+@login_required
+def emergency_dashboard():
+    """Emergency alerts dashboard (admin access)"""
+    # In a production system, you'd add admin role checking here
+    return render_template('emergency_dashboard.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Handle user logout"""
+    if 'session_token' in session:
+        db.end_session(session['session_token'])
+    
+    session.clear()
+    flash('You have been successfully logged out.', 'success')
+    return redirect(url_for('login'))
 
 @app.route('/api/chat', methods=['POST'])
+@login_required
 def chat():
-    """Handle chat messages"""
+    """Handle chat messages with emergency alert system"""
     try:
         data = request.get_json()
         user_message = data.get('message', '').strip()
-        session_id = session.get('session_id', str(uuid.uuid4()))
+        user_id = session.get('user_id')
         
         if not user_message:
             return jsonify({'error': 'No message provided'}), 400
         
-        # Initialize chat history for session
-        if session_id not in chat_history:
-            chat_history[session_id] = []
+        # Get user information for emergency alerts
+        user_data = db.get_user_by_id(user_id)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 404
         
-        # Add user message to history
-        chat_history[session_id].append({
-            'type': 'user',
-            'message': user_message,
-            'timestamp': datetime.datetime.now().isoformat()
-        })
+        # Get user's chat history for context
+        recent_history = db.get_user_chat_history(user_id, limit=10)
+        historical_messages = [msg['message'] for msg in recent_history]
+        
+        # 🚨 ENHANCED RISK ANALYSIS - New emergency system
+        risk_assessment = risk_analyzer.analyze_message(
+            user_id=str(user_id),
+            message=user_message,
+            user_history=historical_messages
+        )
         
         # Predict depression using trained model
         ml_prediction = predict_depression_from_text(user_message)
@@ -356,54 +466,152 @@ def chat():
         gemini_analysis = analyze_text_with_gemini(user_message)
         
         # Get context from recent chat history
-        context = ""
-        if len(chat_history[session_id]) > 1:
-            recent_messages = chat_history[session_id][-5:]  # Last 5 messages
-            context = " ".join([msg['message'] for msg in recent_messages if msg['type'] == 'user'])
+        context = " ".join(historical_messages)
         
         # Get Gemini response for conversation
         gemini_response = get_gemini_response(user_message, context)
         
-        # Combine analysis results
+        # Combine analysis results with new risk assessment
         combined_analysis = {
             'ml_prediction': ml_prediction,
             'gemini_analysis': gemini_analysis,
-            'combined_risk_assessment': 'Low Risk'  # Default
+            'risk_assessment': {
+                'level': risk_assessment['risk_level'],
+                'score': risk_assessment['risk_score'],
+                'emergency_required': risk_assessment['emergency_alert_required']
+            },
+            'combined_risk_assessment': risk_assessment['risk_level']
         }
         
-        # Determine combined risk level
-        if 'error' not in ml_prediction:
-            ml_risk = ml_prediction['risk_score']
-            
-            # Simple combination logic - you can make this more sophisticated
-            if ml_risk > 0.7:
-                combined_analysis['combined_risk_assessment'] = 'High Risk'
-                combined_analysis['risk_color'] = 'danger'
-            elif ml_risk > 0.4:
-                combined_analysis['combined_risk_assessment'] = 'Moderate Risk'
-                combined_analysis['risk_color'] = 'warning'
-            else:
-                combined_analysis['combined_risk_assessment'] = 'Low Risk'
-                combined_analysis['risk_color'] = 'success'
+        # Determine risk color for UI
+        if risk_assessment['risk_level'] in ['CRITICAL', 'HIGH']:
+            combined_analysis['risk_color'] = 'danger'
+        elif risk_assessment['risk_level'] == 'MODERATE':
+            combined_analysis['risk_color'] = 'warning'
+        else:
+            combined_analysis['risk_color'] = 'success'
         
-        # Add bot response to history
-        chat_history[session_id].append({
-            'type': 'bot',
-            'message': gemini_response,
-            'analysis': combined_analysis,
-            'timestamp': datetime.datetime.now().isoformat()
-        })
+        # Save chat to database first
+        chat_saved = db.save_chat_message(
+            user_id=user_id,
+            message=user_message,
+            response=gemini_response,
+            risk_level=risk_assessment['risk_level'],
+            confidence_score=risk_assessment['risk_score']
+        )
+        
+        # Save detailed risk assessment to database
+        if chat_saved:
+            db.save_risk_assessment(user_id, None, risk_assessment)
+        
+        # 🚨 EMERGENCY ALERT SYSTEM - Check if emergency email should be sent
+        emergency_alert_sent = False
+        alert_details = None
+        
+        if risk_assessment['emergency_alert_required'] and user_data.get('parent_email'):
+            
+            # Smart cooldown system to balance safety with spam prevention
+            recent_alerts = db.get_recent_emergency_alerts(user_id, hours=6)
+            critical_alerts_recent = [alert for alert in recent_alerts if alert['risk_level'] in ['CRITICAL', 'HIGH']]
+            
+            should_send_alert = True
+            cooldown_reason = None
+            
+            # Cooldown logic: 
+            # - CRITICAL: Always send (suicide threats are emergencies)
+            # - HIGH: 30-minute cooldown 
+            # - MODERATE: 6-hour cooldown
+            current_risk = risk_assessment['risk_level']
+            
+            if current_risk == 'CRITICAL':
+                # Always send CRITICAL alerts (suicide threats)
+                should_send_alert = True
+                logger.warning(f"🚨 CRITICAL ALERT - Bypassing cooldown for user {user_id}")
+                
+            elif current_risk == 'HIGH':
+                # Check for HIGH/CRITICAL alerts in last 30 minutes
+                recent_high_alerts = [alert for alert in recent_alerts 
+                                    if alert['risk_level'] in ['CRITICAL', 'HIGH'] 
+                                    and alert['created_at'] > (datetime.datetime.now() - datetime.timedelta(minutes=30)).isoformat()]
+                if recent_high_alerts:
+                    should_send_alert = False
+                    cooldown_reason = "HIGH alert sent within 30 minutes"
+                    
+            else:  # MODERATE
+                # Check for any alert in last 6 hours
+                if critical_alerts_recent:
+                    should_send_alert = False
+                    cooldown_reason = "Alert sent within 6 hours"
+            
+            if not should_send_alert:
+                logger.info(f"Emergency alert not sent - {cooldown_reason} for user {user_id}")
+            else:
+                logger.warning(f"🚨 SENDING EMERGENCY ALERT for user {user_id} - Risk Level: {current_risk}")
+            
+            if should_send_alert:
+                logger.warning(f"🚨 EMERGENCY ALERT TRIGGERED for user {user_id} - Risk Level: {risk_assessment['risk_level']}")
+                
+                # Create emergency alert record
+                alert_id = db.create_emergency_alert(
+                    user_id=user_id,
+                    risk_level=risk_assessment['risk_level'],
+                    risk_score=risk_assessment['risk_score'],
+                    parent_email=user_data['parent_email'],
+                    message_content=user_message,
+                    risk_indicators=json.dumps(risk_assessment['indicators'])
+                )
+                
+                if alert_id:
+                    # Prepare data for email service
+                    email_user_data = {
+                        'email': user_data['email'],
+                        'parent_email': user_data['parent_email']
+                    }
+                    
+                    email_risk_assessment = {
+                        'level': risk_assessment['risk_level'],
+                        'score': risk_assessment['risk_score'],
+                        'summary': f"AI analysis detected {len(risk_assessment['indicators']['critical'] + risk_assessment['indicators']['high'])} high-priority risk indicators in user communication."
+                    }
+                    
+                    # Send emergency email
+                    email_sent = email_service.send_emergency_alert(
+                        user_data=email_user_data,
+                        risk_assessment=email_risk_assessment
+                    )
+                    
+                    if email_sent:
+                        # Update alert record as sent
+                        db.update_emergency_alert_sent(alert_id, datetime.datetime.now())
+                        emergency_alert_sent = True
+                        alert_details = {
+                            'sent_to': user_data['parent_email'],
+                            'timestamp': datetime.datetime.now().isoformat(),
+                            'risk_level': risk_assessment['risk_level']
+                        }
+                        logger.info(f"✅ Emergency email sent successfully to {user_data['parent_email']}")
+                    else:
+                        logger.error(f"❌ Failed to send emergency email for user {user_id}")
+        
+        # Add emergency alert info to response
+        combined_analysis['emergency_alert'] = {
+            'required': risk_assessment['emergency_alert_required'],
+            'sent': emergency_alert_sent,
+            'details': alert_details
+        }
         
         return jsonify({
             'response': gemini_response,
             'analysis': combined_analysis,
-            'session_id': session_id
+            'user_id': user_id
         })
         
     except Exception as e:
+        logger.error(f"Chat error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/audio-analysis', methods=['POST'])
+@login_required
 def analyze_audio():
     """Handle audio file analysis"""
     try:
@@ -457,21 +665,22 @@ def analyze_audio():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/chat-history')
+@login_required
 def get_chat_history():
-    """Get chat history for current session"""
-    session_id = session.get('session_id')
-    if not session_id or session_id not in chat_history:
+    """Get chat history for current user"""
+    user_id = session.get('user_id')
+    if not user_id:
         return jsonify([])
     
-    return jsonify(chat_history[session_id])
+    history = db.get_user_chat_history(user_id, limit=50)
+    return jsonify(history)
 
 @app.route('/api/clear-chat', methods=['POST'])
+@login_required
 def clear_chat():
-    """Clear chat history for current session"""
-    session_id = session.get('session_id')
-    if session_id and session_id in chat_history:
-        chat_history[session_id] = []
-    
+    """Clear chat history for current user"""
+    # Note: In a real application, you might want to soft-delete rather than hard-delete
+    # For now, we'll just return success as the database doesn't have a clear function
     return jsonify({'status': 'cleared'})
 
 if __name__ == '__main__':

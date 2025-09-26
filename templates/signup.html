@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmpathyWave - Sign Up</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --success-color: #48bb78;
+            --warning-color: #ed8936;
+            --danger-color: #f56565;
+            --dark-color: #2d3748;
+            --light-color: #f7fafc;
+            --border-radius: 16px;
+            --shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            --animation-speed: 0.3s;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            width: 100%;
+            max-width: 500px;
+            padding: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            animation: slideUp var(--animation-speed) ease-out;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(50px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .auth-logo {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        .auth-logo i {
+            font-size: 32px;
+            color: white;
+        }
+
+        .auth-title {
+            color: var(--dark-color);
+            font-weight: 700;
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .auth-subtitle {
+            color: #6c757d;
+            font-size: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--dark-color);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .form-control {
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 15px 20px;
+            font-size: 16px;
+            transition: all var(--animation-speed);
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            background: white;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group-text {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6c757d;
+            z-index: 10;
+        }
+
+        .form-control.with-icon {
+            padding-left: 50px;
+        }
+
+        .btn-primary-custom {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border: none;
+            border-radius: 12px;
+            padding: 15px 30px;
+            font-weight: 600;
+            font-size: 16px;
+            color: white;
+            width: 100%;
+            transition: all var(--animation-speed);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary-custom:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary-custom .spinner-border {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+        }
+
+        .auth-footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .auth-link {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 600;
+            transition: all var(--animation-speed);
+        }
+
+        .auth-link:hover {
+            color: var(--secondary-color);
+            text-decoration: underline;
+        }
+
+        .alert {
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border: none;
+            animation: fadeIn var(--animation-speed) ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert-success {
+            background: rgba(72, 187, 120, 0.1);
+            color: #22543d;
+            border-left: 4px solid var(--success-color);
+        }
+
+        .alert-danger {
+            background: rgba(245, 101, 101, 0.1);
+            color: #742a2a;
+            border-left: 4px solid var(--danger-color);
+        }
+
+        .password-strength {
+            margin-top: 8px;
+            font-size: 14px;
+        }
+
+        .strength-bar {
+            height: 4px;
+            border-radius: 2px;
+            margin-top: 5px;
+            background: #e9ecef;
+            overflow: hidden;
+        }
+
+        .strength-fill {
+            height: 100%;
+            transition: all 0.3s ease;
+            border-radius: 2px;
+        }
+
+        .strength-weak {
+            background: #f56565;
+            width: 25%;
+        }
+
+        .strength-fair {
+            background: #ed8936;
+            width: 50%;
+        }
+
+        .strength-good {
+            background: #38b2ac;
+            width: 75%;
+        }
+
+        .strength-strong {
+            background: #48bb78;
+            width: 100%;
+        }
+
+        .form-check {
+            margin: 20px 0;
+        }
+
+        .form-check-input {
+            border-radius: 4px;
+            border: 2px solid #e9ecef;
+        }
+
+        .form-check-input:checked {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .form-check-label {
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .row {
+            margin-left: -10px;
+            margin-right: -10px;
+        }
+
+        .row>div {
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+
+        .is-valid {
+            border-color: var(--success-color) !important;
+        }
+
+        .is-invalid {
+            border-color: var(--danger-color) !important;
+        }
+
+        .valid-feedback {
+            color: var(--success-color);
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .invalid-feedback {
+            color: var(--danger-color);
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loading-spinner {
+            background: white;
+            padding: 30px;
+            border-radius: var(--border-radius);
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+
+        @media (max-width: 480px) {
+            .auth-container {
+                padding: 30px 20px;
+                margin: 10px;
+                max-height: 95vh;
+            }
+
+            .auth-title {
+                font-size: 24px;
+            }
+
+            .row>div {
+                padding-left: 5px;
+                padding-right: 5px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <div class="auth-logo">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <h1 class="auth-title">Join EmpathyWave</h1>
+            <p class="auth-subtitle">Create your account to start your mental health journey</p>
+        </div>
+
+        {% if error %}
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            {{ error }}
+        </div>
+        {% endif %}
+
+        {% if success %}
+        <div class="alert alert-success">
+            <i class="fas fa-check-circle me-2"></i>
+            {{ success }}
+        </div>
+        {% endif %}
+
+        <form method="POST" id="signupForm">
+            <div class="form-group">
+                <label class="form-label" for="email">
+                    <i class="fas fa-envelope me-2"></i>Email Address
+                </label>
+                <div class="input-group">
+                    <span class="input-group-text">
+                        <i class="fas fa-envelope"></i>
+                    </span>
+                    <input type="email" class="form-control with-icon" id="email" name="email"
+                        placeholder="Enter your email address" required value="{{ request.form.email or '' }}">
+                </div>
+                <div class="invalid-feedback"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">
+                    <i class="fas fa-lock me-2"></i>Password
+                </label>
+                <div class="input-group">
+                    <span class="input-group-text">
+                        <i class="fas fa-lock"></i>
+                    </span>
+                    <input type="password" class="form-control with-icon" id="password" name="password"
+                        placeholder="Create a strong password" required>
+                </div>
+                <div class="password-strength" id="passwordStrength" style="display: none;">
+                    <div class="strength-bar">
+                        <div class="strength-fill" id="strengthFill"></div>
+                    </div>
+                    <small id="strengthText">Password strength: <span id="strengthLevel">Weak</span></small>
+                </div>
+                <div class="invalid-feedback"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="confirm_password">
+                    <i class="fas fa-lock me-2"></i>Confirm Password
+                </label>
+                <div class="input-group">
+                    <span class="input-group-text">
+                        <i class="fas fa-lock"></i>
+                    </span>
+                    <input type="password" class="form-control with-icon" id="confirm_password" name="confirm_password"
+                        placeholder="Confirm your password" required>
+                </div>
+                <div class="invalid-feedback"></div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="form-label" for="parent_phone">
+                            <i class="fas fa-phone me-2"></i>Parent's Phone
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-phone"></i>
+                            </span>
+                            <input type="tel" class="form-control with-icon" id="parent_phone" name="parent_phone"
+                                placeholder="Parent's phone number" required
+                                value="{{ request.form.parent_phone or '' }}">
+                        </div>
+                        <div class="invalid-feedback"></div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="form-label" for="parent_email">
+                            <i class="fas fa-envelope me-2"></i>Parent's Email
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-envelope"></i>
+                            </span>
+                            <input type="email" class="form-control with-icon" id="parent_email" name="parent_email"
+                                placeholder="Parent's email address" required
+                                value="{{ request.form.parent_email or '' }}">
+                        </div>
+                        <div class="invalid-feedback"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="terms" name="terms" required>
+                <label class="form-check-label" for="terms">
+                    I agree to the <a href="/terms" class="auth-link">Terms of Service</a> and
+                    <a href="/privacy" class="auth-link">Privacy Policy</a>
+                </label>
+            </div>
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="parental_consent" name="parental_consent" required>
+                <label class="form-check-label" for="parental_consent">
+                    I confirm that I have parental consent to use this mental health service
+                </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary-custom" id="signupBtn">
+                <span class="btn-text">
+                    <i class="fas fa-user-plus me-2"></i>
+                    Create Account
+                </span>
+                <span class="btn-loading" style="display: none;">
+                    <span class="spinner-border spinner-border-sm"></span>
+                    Creating Account...
+                </span>
+            </button>
+        </form>
+
+        <div class="auth-footer">
+            <p class="text-muted">
+                Already have an account?
+                <a href="/login" class="auth-link">Sign in here</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <div class="spinner-border text-primary mb-3"></div>
+            <h5>Creating your account...</h5>
+            <p class="text-muted">Please wait while we set up your mental health journey</p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Password strength checker
+        function checkPasswordStrength(password) {
+            let strength = 0;
+            let feedback = [];
+
+            if (password.length >= 8) strength += 1;
+            else feedback.push("At least 8 characters");
+
+            if (password.match(/[a-z]/)) strength += 1;
+            else feedback.push("lowercase letter");
+
+            if (password.match(/[A-Z]/)) strength += 1;
+            else feedback.push("uppercase letter");
+
+            if (password.match(/[0-9]/)) strength += 1;
+            else feedback.push("number");
+
+            if (password.match(/[^a-zA-Z0-9]/)) strength += 1;
+            else feedback.push("special character");
+
+            return { strength, feedback };
+        }
+
+        document.getElementById('password').addEventListener('input', function () {
+            const password = this.value;
+            const strengthContainer = document.getElementById('passwordStrength');
+            const strengthFill = document.getElementById('strengthFill');
+            const strengthLevel = document.getElementById('strengthLevel');
+
+            if (password.length > 0) {
+                strengthContainer.style.display = 'block';
+                const { strength, feedback } = checkPasswordStrength(password);
+
+                strengthFill.className = 'strength-fill';
+                if (strength <= 2) {
+                    strengthFill.classList.add('strength-weak');
+                    strengthLevel.textContent = 'Weak';
+                } else if (strength === 3) {
+                    strengthFill.classList.add('strength-fair');
+                    strengthLevel.textContent = 'Fair';
+                } else if (strength === 4) {
+                    strengthFill.classList.add('strength-good');
+                    strengthLevel.textContent = 'Good';
+                } else {
+                    strengthFill.classList.add('strength-strong');
+                    strengthLevel.textContent = 'Strong';
+                }
+            } else {
+                strengthContainer.style.display = 'none';
+            }
+        });
+
+        // Form validation
+        document.getElementById('signupForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            let isValid = true;
+            const formData = new FormData(this);
+
+            // Validate email
+            const email = formData.get('email');
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                showFieldError('email', 'Please enter a valid email address');
+                isValid = false;
+            } else {
+                clearFieldError('email');
+            }
+
+            // Validate password
+            const password = formData.get('password');
+            const { strength } = checkPasswordStrength(password);
+            if (strength < 3) {
+                showFieldError('password', 'Password is too weak. Please use a stronger password.');
+                isValid = false;
+            } else {
+                clearFieldError('password');
+            }
+
+            // Validate password confirmation
+            const confirmPassword = formData.get('confirm_password');
+            if (password !== confirmPassword) {
+                showFieldError('confirm_password', 'Passwords do not match');
+                isValid = false;
+            } else {
+                clearFieldError('confirm_password');
+            }
+
+            // Validate parent phone
+            const parentPhone = formData.get('parent_phone');
+            const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+            if (!phoneRegex.test(parentPhone.replace(/\s/g, ''))) {
+                showFieldError('parent_phone', 'Please enter a valid phone number');
+                isValid = false;
+            } else {
+                clearFieldError('parent_phone');
+            }
+
+            // Validate parent email
+            const parentEmail = formData.get('parent_email');
+            if (!emailRegex.test(parentEmail)) {
+                showFieldError('parent_email', 'Please enter a valid parent email address');
+                isValid = false;
+            } else {
+                clearFieldError('parent_email');
+            }
+
+            if (isValid) {
+                const signupBtn = document.getElementById('signupBtn');
+                const btnText = signupBtn.querySelector('.btn-text');
+                const btnLoading = signupBtn.querySelector('.btn-loading');
+                const loadingOverlay = document.getElementById('loadingOverlay');
+
+                // Show loading state
+                btnText.style.display = 'none';
+                btnLoading.style.display = 'inline-flex';
+                signupBtn.disabled = true;
+                loadingOverlay.style.display = 'flex';
+
+                // Submit form
+                this.submit();
+            }
+        });
+
+        function showFieldError(fieldName, message) {
+            const field = document.getElementById(fieldName);
+            const feedback = field.parentNode.parentNode.querySelector('.invalid-feedback');
+
+            field.classList.add('is-invalid');
+            field.classList.remove('is-valid');
+            feedback.textContent = message;
+            feedback.style.display = 'block';
+        }
+
+        function clearFieldError(fieldName) {
+            const field = document.getElementById(fieldName);
+            const feedback = field.parentNode.parentNode.querySelector('.invalid-feedback');
+
+            field.classList.remove('is-invalid');
+            field.classList.add('is-valid');
+            feedback.style.display = 'none';
+        }
+
+        // Real-time validation
+        ['email', 'parent_email'].forEach(fieldName => {
+            document.getElementById(fieldName).addEventListener('blur', function () {
+                const email = this.value;
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                if (email && emailRegex.test(email)) {
+                    clearFieldError(fieldName);
+                } else if (email) {
+                    showFieldError(fieldName, 'Please enter a valid email address');
+                }
+            });
+        });
+
+        document.getElementById('confirm_password').addEventListener('blur', function () {
+            const password = document.getElementById('password').value;
+            const confirmPassword = this.value;
+
+            if (confirmPassword && password === confirmPassword) {
+                clearFieldError('confirm_password');
+            } else if (confirmPassword) {
+                showFieldError('confirm_password', 'Passwords do not match');
+            }
+        });
+
+        // Auto-hide alerts after 5 seconds
+        setTimeout(() => {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                alert.style.animation = 'fadeIn 0.3s ease-out reverse';
+                setTimeout(() => alert.remove(), 300);
+            });
+        }, 5000);
+    </script>
+</body>
+
+</html>

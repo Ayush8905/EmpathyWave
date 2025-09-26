@@ -9,6 +9,10 @@ DATABASE_URL=sqlite:///depression_detection.db
 # Google Gemini API
 GEMINI_API_KEY=your-gemini-api-key-here
 
+# Emergency Email Configuration
+SENDER_EMAIL=empathywave.support@gmail.com
+SENDER_PASSWORD=your-gmail-app-password-here
+
 # Model Configuration
 TEXT_MODEL_PATH=data/models/text_model.pkl
 AUDIO_MODEL_PATH=data/models/audio_model.pkl

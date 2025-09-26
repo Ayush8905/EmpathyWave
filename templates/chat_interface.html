@@ -545,6 +545,9 @@
                 <div class="header-info">
                     <h3>EmpathyWave</h3>
                     <p>AI-Powered Mental Health Assistant</p>
+                    {% if user %}
+                    <small>Welcome, {{ user.email.split('@')[0] }}!</small>
+                    {% endif %}
                 </div>
             </div>
             <div class="header-controls">
@@ -557,6 +560,23 @@
                 <button class="control-btn" onclick="toggleAudioRecorder()" title="Voice Recording">
                     <i class="fas fa-microphone"></i>
                 </button>
+                <button class="control-btn" onclick="logout()" title="Logout">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Emergency Alert Notification Area -->
+        <div id="emergencyAlertContainer" class="d-none">
+            <div class="alert alert-danger border-0 rounded-0 m-0 text-center" style="animation: pulse 2s infinite;">
+                <div class="d-flex align-items-center justify-content-center">
+                    <i class="fas fa-exclamation-triangle me-2 fa-lg"></i>
+                    <div>
+                        <strong>Emergency Alert Sent</strong><br>
+                        <small id="emergencyAlertMessage">Your parent/guardian has been notified due to safety
+                            concerns.</small>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -743,6 +763,12 @@
                 } else {
                     addMessage('bot', data.response);
                     updateAnalysis(data.analysis);
+
+                    // Check for emergency alert
+                    if (data.analysis && data.analysis.emergency_alert && data.analysis.emergency_alert.sent) {
+                        showEmergencyAlert(data.analysis.emergency_alert.details);
+                    }
+
                     showNotification('Message analyzed successfully', 'success');
                 }
             } catch (error) {
@@ -1008,6 +1034,12 @@
             }
         }
 
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                window.location.href = '/logout';
+            }
+        }
+
         function showNotification(message, type) {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -1026,6 +1058,32 @@
                     document.body.removeChild(notification);
                 }, 300);
             }, 3000);
+        }
+
+        function showEmergencyAlert(alertDetails) {
+            const alertContainer = document.getElementById('emergencyAlertContainer');
+            const alertMessage = document.getElementById('emergencyAlertMessage');
+
+            if (alertDetails && alertDetails.sent_to) {
+                alertMessage.innerHTML =
+                    `Your parent/guardian (${alertDetails.sent_to.replace(/(.{3}).*(@.*)/, '$1***$2')}) has been notified due to safety concerns.<br>
+                    <small class="text-muted">Alert sent at ${new Date(alertDetails.timestamp).toLocaleTimeString()}</small>`;
+            } else {
+                alertMessage.innerHTML = 'Your parent/guardian has been notified due to safety concerns.';
+            }
+
+            alertContainer.classList.remove('d-none');
+
+            // Add crisis resources message
+            setTimeout(() => {
+                addMessage('bot', `🚨 <strong>Emergency Alert Sent</strong><br><br>
+                I've detected that you may be going through a difficult time. Your parent/guardian has been notified because your safety is important.<br><br>
+                <strong>🆘 If you need immediate help:</strong><br>
+                • Call 988 (Suicide & Crisis Lifeline)<br>
+                • Text HOME to 741741 (Crisis Text Line)<br>
+                • Call 911 for emergencies<br><br>
+                Remember: You are not alone, and help is available. Would you like to talk about what you're feeling?`);
+            }, 2000);
         }
 
         // Initialize
