@@ -873,26 +873,40 @@
 
             if (!isRecording) {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
+                    // Optimized audio settings for speech recognition
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            sampleRate: 16000,          // 16kHz sample rate
+                            channelCount: 1,            // Mono channel
+                            echoCancellation: true,     // Echo cancellation
+                            noiseSuppression: true,     // Noise suppression
+                            autoGainControl: true       // Auto gain control
+                        }
+                    });
+
+                    mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: 'audio/webm;codecs=opus'
+                    });
                     audioChunks = [];
 
                     mediaRecorder.ondataavailable = event => {
                         audioChunks.push(event.data);
                     };
 
-                    mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                        uploadAudioBlob(audioBlob);
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        // Convert WebM to WAV client-side before upload
+                        const wavBlob = await convertWebMToWAV(audioBlob);
+                        uploadAudioBlob(wavBlob);
                     };
 
                     mediaRecorder.start();
                     isRecording = true;
                     audioRecorder.style.display = 'block';
-                    showNotification('Recording started', 'success');
+                    showNotification('🎤 Recording started - Speak clearly', 'success');
 
                 } catch (error) {
-                    showNotification('Microphone access denied', 'error');
+                    showNotificationWithDetails('Microphone access denied', 'Please allow microphone access and try again', 'error');
                     console.error('Error accessing microphone:', error);
                 }
             }
@@ -919,21 +933,111 @@
             }
         }
 
+        // WebM to WAV conversion using Web Audio API
+        async function convertWebMToWAV(webmBlob) {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const arrayBuffer = await webmBlob.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                // Convert to WAV format
+                const wavBlob = audioBufferToWAV(audioBuffer);
+                console.log('✅ WebM to WAV conversion successful');
+                return wavBlob;
+            } catch (error) {
+                console.error('❌ WebM to WAV conversion failed:', error);
+                // Return original blob as fallback
+                return webmBlob;
+            }
+        }
+
+        // Convert AudioBuffer to WAV Blob with proper headers
+        function audioBufferToWAV(buffer) {
+            const length = buffer.length;
+            const sampleRate = buffer.sampleRate;
+            const numberOfChannels = 1; // Force mono
+            const bytesPerSample = 2; // 16-bit
+
+            // Create WAV header
+            const arrayBuffer = new ArrayBuffer(44 + length * bytesPerSample);
+            const view = new DataView(arrayBuffer);
+
+            // RIFF chunk descriptor
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + length * bytesPerSample, true);
+            writeString(view, 8, 'WAVE');
+
+            // fmt sub-chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true); // Sub-chunk size
+            view.setUint16(20, 1, true);  // Audio format (PCM)
+            view.setUint16(22, numberOfChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numberOfChannels * bytesPerSample, true);
+            view.setUint16(32, numberOfChannels * bytesPerSample, true);
+            view.setUint16(34, 16, true); // Bits per sample
+
+            // data sub-chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, length * bytesPerSample, true);
+
+            // Convert audio data to 16-bit PCM
+            const channelData = buffer.getChannelData(0); // Get first channel (mono)
+            let offset = 44;
+            for (let i = 0; i < length; i++) {
+                const sample = Math.max(-1, Math.min(1, channelData[i]));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                offset += 2;
+            }
+
+            return new Blob([arrayBuffer], { type: 'audio/wav' });
+        }
+
+        // Helper function to write strings to DataView
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
         async function uploadAudioFile(event) {
             const file = event.target.files[0];
             if (!file) return;
 
+            // Validate file type and size
+            const allowedTypes = ['audio/wav', 'audio/webm', 'audio/mp3', 'audio/ogg', 'audio/m4a'];
+            const maxSize = 10 * 1024 * 1024; // 10MB
+
+            if (!allowedTypes.some(type => file.type.includes(type.split('/')[1]))) {
+                showNotificationWithDetails('Invalid file format', 'Please select a WAV, WebM, MP3, OGG, or M4A file', 'error');
+                return;
+            }
+
+            if (file.size > maxSize) {
+                showNotificationWithDetails('File too large', `File size: ${(file.size / (1024 * 1024)).toFixed(1)}MB (max: 10MB)`, 'error');
+                return;
+            }
+
+            if (file.size === 0) {
+                showNotificationWithDetails('Empty file', 'Please select a valid audio file', 'error');
+                return;
+            }
+
+            showNotification('📁 Processing uploaded audio file...', 'info');
             uploadAudioBlob(file);
         }
 
         async function uploadAudioBlob(audioBlob) {
             const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.wav');
+            const filename = audioBlob.type.includes('wav') ? 'recording.wav' :
+                audioBlob.type.includes('webm') ? 'recording.webm' : 'recording.audio';
+            formData.append('audio', audioBlob, filename);
 
             showTypingIndicator();
+            showNotification('🎤 Converting speech to text...', 'info');
 
             try {
-                const response = await fetch('/api/audio-analysis', {
+                const response = await fetch('/api/voice-to-text', {
                     method: 'POST',
                     body: formData
                 });
@@ -941,27 +1045,87 @@
                 const data = await response.json();
                 hideTypingIndicator();
 
-                if (data.error) {
-                    addMessage('bot', '❌ I couldn\'t analyze the audio file. Please try again with a different file.');
-                    showNotification('Audio analysis failed', 'error');
-                } else {
-                    const riskLevel = data.risk_level || 'Unknown';
-                    const riskScore = (data.risk_score * 100).toFixed(1);
+                if (!data.success) {
+                    let errorMessage = '❌ Voice processing failed.';
 
-                    addMessage('bot', `🎵 <strong>Audio Analysis Complete</strong><br>
-                        Risk Level: <span class="risk-badge risk-${data.risk_color === 'success' ? 'low' : data.risk_color === 'warning' ? 'moderate' : 'high'}">${riskLevel}</span><br>
-                        Risk Score: ${riskScore}%<br><br>
-                        Based on your voice patterns, I've analyzed various acoustic features. How are you feeling right now?`);
+                    if (data.error_type === 'transcription_failed') {
+                        errorMessage = '❌ Could not understand the speech. Please speak more clearly and try again.';
+                    } else if (data.error_type === 'invalid_format') {
+                        errorMessage = `❌ Unsupported audio format. Supported formats: ${data.supported_formats?.join(', ') || 'WAV, WebM, MP3'}`;
+                    } else if (data.error_type === 'file_too_large') {
+                        errorMessage = '❌ Audio file is too large. Please use a file smaller than 10MB.';
+                    } else if (data.error_type === 'empty_file') {
+                        errorMessage = '❌ Audio file is empty. Please record some audio and try again.';
+                    }
 
-                    // Update sidebar with audio analysis
-                    updateAudioAnalysis(data);
-                    showNotification('Audio analyzed successfully', 'success');
+                    addMessage('bot', errorMessage);
+                    showNotificationWithDetails('Voice processing failed', data.error || 'Unknown error', 'error');
+
+                    // Log detailed error info for debugging
+                    console.error('Voice processing error:', data);
+                    return;
                 }
+
+                // Success - got transcribed text and ML analysis
+                const transcribedText = data.transcribed_text;
+                const mlAnalysis = data.ml_analysis;
+                const processingInfo = data.processing_info;
+
+                // Add transcribed text as user message
+                addMessage('user', `🎤 "${transcribedText}"`);
+
+                // Format bot response with analysis
+                const riskLevel = mlAnalysis.risk_level;
+                const confidence = (mlAnalysis.confidence * 100).toFixed(1);
+                const depressionProb = (mlAnalysis.depression_probability * 100).toFixed(1);
+                const normalProb = (mlAnalysis.normal_probability * 100).toFixed(1);
+
+                let riskColor = 'low';
+                let riskEmoji = '🟢';
+                if (riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
+                    riskColor = 'high';
+                    riskEmoji = '🔴';
+                } else if (riskLevel === 'MODERATE') {
+                    riskColor = 'moderate';
+                    riskEmoji = '🟡';
+                }
+
+                const botResponse = `� <strong>Voice Analysis Complete</strong><br><br>
+                    📝 <strong>Transcribed:</strong> "${transcribedText}"<br><br>
+                    ${riskEmoji} <strong>Risk Assessment:</strong> <span class="risk-badge risk-${riskColor}">${riskLevel}</span><br>
+                    📊 <strong>Confidence:</strong> ${confidence}%<br>
+                    📈 <strong>Analysis:</strong> ${depressionProb}% depression indicators, ${normalProb}% normal indicators<br><br>
+                    ⚙️ <strong>Processing:</strong> ${processingInfo.method} (${processingInfo.processing_time})<br>
+                    📁 <strong>File:</strong> ${processingInfo.file_info.size} ${processingInfo.file_info.format}<br><br>
+                    Based on your voice and words, I've provided an analysis above. How are you feeling right now?`;
+
+                addMessage('bot', botResponse);
+
+                // Update analysis panel
+                updateVoiceAnalysis(mlAnalysis, processingInfo);
+
+                // Check for emergency alert from voice
+                if (data.emergency_alert && data.emergency_alert.sent) {
+                    showEmergencyAlert(data.emergency_alert.details);
+                    showNotificationWithDetails('🚨 Emergency Alert Sent', 'Parent/guardian has been notified about voice message concerns', 'warning');
+                }
+
+                // Show success notification
+                showNotification(`✅ Voice analyzed: ${riskLevel} risk detected`, 'success');
+
+                // Log success to console
+                console.log('🎤 Voice Analysis Success:', {
+                    transcription: transcribedText,
+                    risk: riskLevel,
+                    confidence: confidence + '%',
+                    processing: processingInfo.method,
+                    emergencyAlert: data.emergency_alert?.sent || false
+                });
             } catch (error) {
                 hideTypingIndicator();
-                addMessage('bot', '❌ Error analyzing audio. Please try again.');
-                showNotification('Audio processing error', 'error');
-                console.error('Error:', error);
+                addMessage('bot', '❌ Network error during voice processing. Please check your connection and try again.');
+                showNotificationWithDetails('Connection error', 'Failed to connect to voice processing service', 'error');
+                console.error('Voice processing network error:', error);
             }
         }
 
@@ -1058,6 +1222,81 @@
                     document.body.removeChild(notification);
                 }, 300);
             }, 3000);
+        }
+
+        function showNotificationWithDetails(title, details, type) {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <div class="d-flex align-items-start">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : type === 'info' ? 'info-circle' : 'times-circle'} me-2 mt-1"></i>
+                    <div>
+                        <div class="fw-bold">${title}</div>
+                        <small class="text-muted">${details}</small>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.style.animation = 'slideInRight 0.3s ease-out reverse';
+                setTimeout(() => {
+                    if (document.body.contains(notification)) {
+                        document.body.removeChild(notification);
+                    }
+                }, 300);
+            }, 5000);
+        }
+
+        function updateVoiceAnalysis(mlAnalysis, processingInfo) {
+            const analysisDiv = document.getElementById('currentAnalysis');
+            if (!analysisDiv) return;
+
+            const riskLevel = mlAnalysis.risk_level;
+            const confidence = (mlAnalysis.confidence * 100).toFixed(1);
+
+            let riskColor = 'success';
+            let riskIcon = 'fa-check-circle';
+            if (riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
+                riskColor = 'danger';
+                riskIcon = 'fa-exclamation-triangle';
+            } else if (riskLevel === 'MODERATE') {
+                riskColor = 'warning';
+                riskIcon = 'fa-exclamation-circle';
+            }
+
+            analysisDiv.innerHTML = `
+                <div class="analysis-card">
+                    <h6 class="analysis-title">🎤 Voice Analysis Results</h6>
+                    <div class="analysis-item">
+                        <span class="analysis-label">Risk Level:</span>
+                        <span class="badge bg-${riskColor}">
+                            <i class="fas ${riskIcon} me-1"></i>${riskLevel}
+                        </span>
+                    </div>
+                    <div class="analysis-item">
+                        <span class="analysis-label">Confidence:</span>
+                        <span class="analysis-value">${confidence}%</span>
+                    </div>
+                    <div class="analysis-item">
+                        <span class="analysis-label">Depression Probability:</span>
+                        <span class="analysis-value">${(mlAnalysis.depression_probability * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="analysis-item">
+                        <span class="analysis-label">Processing Method:</span>
+                        <span class="analysis-value text-muted small">${processingInfo.method}</span>
+                    </div>
+                    <div class="analysis-item">
+                        <span class="analysis-label">Processing Time:</span>
+                        <span class="analysis-value text-muted small">${processingInfo.processing_time}</span>
+                    </div>
+                    <div class="analysis-item">
+                        <span class="analysis-label">Feature Count:</span>
+                        <span class="analysis-value text-muted small">${mlAnalysis.feature_count}</span>
+                    </div>
+                </div>
+            `;
         }
 
         function showEmergencyAlert(alertDetails) {

@@ -14,6 +14,9 @@ librosa==0.10.1
 soundfile==0.12.1
 pydub==0.25.1
 
+# Voice Recognition
+SpeechRecognition==3.10.0
+
 # Text Processing
 nltk==3.8.1
 spacy==3.7.2

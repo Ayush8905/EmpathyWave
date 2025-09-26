@@ -18,6 +18,11 @@ from functools import wraps
 from database import DatabaseManager
 from depression_risk_analyzer import risk_analyzer
 from emergency_email_service import email_service
+# Voice Recognition Imports
+import speech_recognition as sr
+from pydub import AudioSegment
+import wave
+import io
 
 # Load environment variables
 load_dotenv()
@@ -683,6 +688,465 @@ def clear_chat():
     # For now, we'll just return success as the database doesn't have a clear function
     return jsonify({'status': 'cleared'})
 
+# ==================== VOICE RECOGNITION SYSTEM ====================
+
+def preprocess_text_for_ml(text):
+    """
+    Preprocess text to match exact training data format
+    Following the ML pipeline requirements with TF-IDF vectorization
+    """
+    if not text:
+        return ""
+    
+    # Convert to lowercase
+    text = text.lower()
+    
+    # Remove extra whitespace with regex
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Clean excessive punctuation while preserving sentence structure
+    text = re.sub(r'[^\w\s\.\!\?\,\;\:]', '', text)
+    text = re.sub(r'[\.\!\?\,\;\:]{2,}', '.', text)
+    
+    # Remove standalone digits
+    text = re.sub(r'\b\d+\b', '', text)
+    
+    # Strip extra spaces
+    text = text.strip()
+    
+    return text
+
+def speech_to_text(audio_file_path):
+    """
+    Convert audio file to text using Google Speech Recognition
+    Implements multiple fallback methods as specified
+    """
+    recognizer = sr.Recognizer()
+    
+    # Adjust for ambient noise
+    with sr.AudioFile(audio_file_path) as source:
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+    
+    try:
+        # Method 1: Direct audio file processing
+        logger.info(f"🎤 Processing audio file: {audio_file_path}")
+        with sr.AudioFile(audio_file_path) as source:
+            audio_data = recognizer.record(source)
+            
+        # Use Google Speech Recognition with timeout
+        text = recognizer.recognize_google(
+            audio_data, 
+            language='en-US',
+            show_all=False
+        )
+        
+        logger.info(f"✅ Speech recognition successful: '{text[:50]}...'")
+        return text
+        
+    except sr.UnknownValueError:
+        logger.warning("⚠️  Speech was unclear or could not be understood")
+        return None
+        
+    except sr.RequestError as e:
+        logger.error(f"❌ Speech recognition service error: {e}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in speech recognition: {e}")
+        return None
+
+def convert_audio_to_wav(input_path, output_path):
+    """
+    Convert audio file to WAV format using pydub fallback
+    """
+    try:
+        # Try to load audio with pydub
+        audio = AudioSegment.from_file(input_path)
+        
+        # Convert to WAV with optimal settings for speech recognition
+        audio = audio.set_frame_rate(16000)  # 16kHz sample rate
+        audio = audio.set_channels(1)        # Mono channel
+        audio = audio.set_sample_width(2)    # 16-bit depth
+        
+        # Export as WAV
+        audio.export(output_path, format="wav")
+        logger.info(f"✅ Audio converted successfully: {input_path} -> {output_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Audio conversion failed: {e}")
+        return False
+
+def analyze_text_with_ml(text):
+    """
+    Analyze text using the integrated risk analyzer and ML model
+    Returns detailed analysis with confidence scores
+    """
+    try:
+        if not text:
+            return {
+                'risk_level': 'LOW',
+                'confidence': 0.0,
+                'depression_probability': 0.0,
+                'normal_probability': 1.0,
+                'feature_count': 0,
+                'original_text_length': 0,
+                'processed_text_length': 0,
+                'processed_text': ''
+            }
+        
+        # Use the existing risk analyzer which has the ML model
+        risk_assessment = risk_analyzer.analyze_message(
+            user_id="voice_user",  # Voice analysis user identifier
+            message=text,
+            user_history=None      # No history for voice analysis
+        )
+        
+        # Also use the existing ML prediction function
+        ml_prediction = predict_depression_from_text(text)
+        
+        # Preprocess text to match training format for additional info
+        processed_text = preprocess_text_for_ml(text)
+        
+        # Extract risk information from risk_assessment
+        risk_level = risk_assessment.get('risk_level', 'LOW')
+        risk_score = risk_assessment.get('risk_score', 0.0)
+        
+        # Convert risk score to confidence (0-300 scale to 0-1 scale)
+        confidence = min(risk_score / 300.0, 1.0) if risk_score > 0 else 0.0
+        
+        # Calculate probabilities based on ML prediction
+        if ml_prediction and 'confidence' in ml_prediction:
+            ml_confidence = ml_prediction['confidence']
+            if ml_prediction.get('prediction') == 1:  # Depression detected
+                depression_prob = ml_confidence
+                normal_prob = 1.0 - ml_confidence
+            else:
+                depression_prob = 1.0 - ml_confidence
+                normal_prob = ml_confidence
+        else:
+            # Fallback based on risk level
+            if risk_level in ['HIGH', 'CRITICAL']:
+                depression_prob = 0.8
+                normal_prob = 0.2
+            elif risk_level == 'MODERATE':
+                depression_prob = 0.6
+                normal_prob = 0.4
+            else:
+                depression_prob = 0.2
+                normal_prob = 0.8
+        
+        # Estimate feature count (for display purposes)
+        feature_count = len([word for word in processed_text.split() if len(word) > 2])
+        
+        logger.info(f"📊 ML Analysis - Risk: {risk_level}, Score: {risk_score}, Confidence: {confidence:.2%}")
+        
+        return {
+            'risk_level': risk_level,
+            'confidence': confidence,
+            'depression_probability': depression_prob,
+            'normal_probability': normal_prob,
+            'binary_prediction': 1 if risk_level in ['MODERATE', 'HIGH', 'CRITICAL'] else 0,
+            'feature_count': feature_count,
+            'original_text_length': len(text),
+            'processed_text_length': len(processed_text),
+            'processed_text': processed_text[:100] + '...' if len(processed_text) > 100 else processed_text,
+            'risk_score': risk_score,
+            'indicators': risk_assessment.get('indicators', {}),
+            'emergency_alert_required': risk_assessment.get('emergency_alert_required', False)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ ML analysis error: {e}")
+        return {
+            'risk_level': 'ERROR',
+            'confidence': 0.0,
+            'depression_probability': 0.0,
+            'normal_probability': 0.0,
+            'feature_count': 0,
+            'original_text_length': len(text) if text else 0,
+            'processed_text_length': 0,
+            'processed_text': '',
+            'error': str(e)
+        }
+
+@app.route('/api/voice-to-text', methods=['POST'])
+@login_required
+def voice_to_text():
+    """
+    Voice Recognition & ML Analysis Integration Endpoint
+    Handles audio file upload, speech-to-text conversion, and ML analysis
+    """
+    start_time = time.time()
+    user_id = session.get('user_id')
+    
+    logger.info(f"🎤 Voice-to-text request from user {user_id}")
+    
+    try:
+        # Check if audio file was uploaded
+        if 'audio' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No audio file provided',
+                'error_type': 'missing_file'
+            }), 400
+        
+        audio_file = request.files['audio']
+        
+        if audio_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'Empty filename',
+                'error_type': 'empty_filename'
+            }), 400
+        
+        # Validate file type and size
+        allowed_extensions = {'wav', 'webm', 'mp3', 'ogg', 'm4a'}
+        file_extension = audio_file.filename.rsplit('.', 1)[-1].lower() if '.' in audio_file.filename else ''
+        
+        if file_extension not in allowed_extensions:
+            return jsonify({
+                'success': False,
+                'error': f'Unsupported file format: {file_extension}',
+                'error_type': 'invalid_format',
+                'supported_formats': list(allowed_extensions)
+            }), 400
+        
+        # Check file size (max 10MB)
+        audio_file.seek(0, 2)  # Seek to end
+        file_size = audio_file.tell()
+        audio_file.seek(0)  # Reset to beginning
+        
+        max_size = 10 * 1024 * 1024  # 10MB
+        if file_size > max_size:
+            return jsonify({
+                'success': False,
+                'error': f'File too large: {file_size / (1024*1024):.1f}MB (max: 10MB)',
+                'error_type': 'file_too_large'
+            }), 400
+        
+        if file_size == 0:
+            return jsonify({
+                'success': False,
+                'error': 'Empty audio file',
+                'error_type': 'empty_file'
+            }), 400
+        
+        logger.info(f"📁 Audio file: {audio_file.filename} ({file_size / 1024:.1f}KB)")
+        
+        # Generate unique filename
+        unique_filename = f"{uuid.uuid4().hex}_{secure_filename(audio_file.filename)}"
+        temp_input_path = os.path.join('uploads', unique_filename)
+        temp_wav_path = os.path.join('uploads', f"{uuid.uuid4().hex}_converted.wav")
+        
+        # Save uploaded file
+        audio_file.save(temp_input_path)
+        logger.info(f"💾 File saved to: {temp_input_path}")
+        
+        transcribed_text = None
+        processing_method = None
+        
+        # Method 1: Try direct speech recognition
+        if file_extension == 'wav':
+            transcribed_text = speech_to_text(temp_input_path)
+            processing_method = "Direct WAV processing"
+        
+        # Method 2: Convert to WAV if direct method failed or file is not WAV
+        if not transcribed_text and file_extension != 'wav':
+            logger.info("🔄 Converting audio to WAV format...")
+            if convert_audio_to_wav(temp_input_path, temp_wav_path):
+                transcribed_text = speech_to_text(temp_wav_path)
+                processing_method = f"Converted {file_extension.upper()} to WAV"
+            else:
+                processing_method = f"Conversion from {file_extension.upper()} failed"
+        
+        # Method 3: Fallback - try original file anyway
+        if not transcribed_text and file_extension != 'wav':
+            logger.info("🔄 Trying original file as fallback...")
+            transcribed_text = speech_to_text(temp_input_path)
+            processing_method = f"Fallback direct processing of {file_extension.upper()}"
+        
+        # Clean up temporary files
+        try:
+            if os.path.exists(temp_input_path):
+                os.remove(temp_input_path)
+            if os.path.exists(temp_wav_path):
+                os.remove(temp_wav_path)
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️  Cleanup warning: {cleanup_error}")
+        
+        processing_time = time.time() - start_time
+        
+        # Handle speech recognition failure
+        if not transcribed_text:
+            logger.warning(f"❌ Speech recognition failed after all methods")
+            return jsonify({
+                'success': False,
+                'error': 'Could not transcribe audio. Please ensure clear speech and good audio quality.',
+                'error_type': 'transcription_failed',
+                'processing_method': processing_method,
+                'processing_time': f"{processing_time:.2f}s",
+                'file_info': {
+                    'size': f"{file_size / 1024:.1f}KB",
+                    'format': file_extension.upper()
+                }
+            }), 400
+        
+        # Perform ML analysis on transcribed text
+        logger.info("🧠 Performing ML analysis...")
+        ml_analysis = analyze_text_with_ml(transcribed_text)
+        
+        # 🚨 EMERGENCY ALERT SYSTEM for Voice Input
+        emergency_alert_sent = False
+        alert_details = None
+        
+        if ml_analysis.get('emergency_alert_required') and session.get('user_data', {}).get('parent_email'):
+            user_data = session['user_data']
+            
+            # Smart cooldown system (same as text chat)
+            recent_alerts = db.get_recent_emergency_alerts(user_id, hours=6)
+            critical_alerts_recent = [alert for alert in recent_alerts if alert['risk_level'] in ['CRITICAL', 'HIGH']]
+            
+            should_send_alert = True
+            cooldown_reason = None
+            current_risk = ml_analysis['risk_level']
+            
+            if current_risk == 'CRITICAL':
+                should_send_alert = True  # Always send CRITICAL alerts
+                logger.warning(f"🚨 CRITICAL VOICE ALERT - Bypassing cooldown for user {user_id}")
+            elif current_risk == 'HIGH':
+                recent_high_alerts = [alert for alert in recent_alerts 
+                                    if alert['risk_level'] in ['CRITICAL', 'HIGH'] 
+                                    and alert['created_at'] > (datetime.datetime.now() - datetime.timedelta(minutes=30)).isoformat()]
+                if recent_high_alerts:
+                    should_send_alert = False
+                    cooldown_reason = "HIGH alert sent within 30 minutes"
+            else:  # MODERATE
+                if critical_alerts_recent:
+                    should_send_alert = False
+                    cooldown_reason = "Alert sent within 6 hours"
+            
+            if should_send_alert:
+                logger.warning(f"🚨 SENDING VOICE EMERGENCY ALERT for user {user_id} - Risk Level: {current_risk}")
+                
+                # Create emergency alert record
+                alert_id = db.create_emergency_alert(
+                    user_id=user_id,
+                    risk_level=current_risk,
+                    risk_score=ml_analysis.get('risk_score', ml_analysis['confidence'] * 100),
+                    parent_email=user_data['parent_email'],
+                    message_content=f"[VOICE] {transcribed_text}",
+                    risk_indicators=json.dumps(ml_analysis.get('indicators', {}))
+                )
+                
+                if alert_id:
+                    # Send emergency email
+                    email_user_data = {
+                        'email': user_data['email'],
+                        'parent_email': user_data['parent_email']
+                    }
+                    
+                    email_risk_assessment = {
+                        'level': current_risk,
+                        'score': ml_analysis.get('risk_score', ml_analysis['confidence'] * 100),
+                        'summary': f"Voice message analysis detected concerning indicators. Transcribed message: '{transcribed_text}'"
+                    }
+                    
+                    email_sent = email_service.send_emergency_alert(
+                        user_data=email_user_data,
+                        risk_assessment=email_risk_assessment
+                    )
+                    
+                    if email_sent:
+                        db.update_emergency_alert_sent(alert_id, datetime.datetime.now())
+                        emergency_alert_sent = True
+                        alert_details = {
+                            'sent_to': user_data['parent_email'],
+                            'timestamp': datetime.datetime.now().isoformat(),
+                            'risk_level': current_risk
+                        }
+                        logger.info(f"✅ Voice emergency email sent successfully to {user_data['parent_email']}")
+                    else:
+                        logger.error(f"❌ Failed to send voice emergency email for user {user_id}")
+            else:
+                logger.info(f"Voice emergency alert not sent - {cooldown_reason} for user {user_id}")
+        
+        # Log detailed analysis report
+        logger.info("=" * 60)
+        logger.info("🎤 VOICE ANALYSIS REPORT")
+        logger.info("=" * 60)
+        logger.info(f"👤 User ID: {user_id}")
+        logger.info(f"⏰ Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"📄 Transcribed Text: '{transcribed_text}'")
+        logger.info(f"🎯 Risk Assessment: {ml_analysis['risk_level']}")
+        logger.info(f"📊 Confidence: {ml_analysis['confidence']:.1%}")
+        logger.info(f"🔴 Depression Probability: {ml_analysis['depression_probability']:.1%}")
+        logger.info(f"🟢 Normal Probability: {ml_analysis['normal_probability']:.1%}")
+        logger.info(f"⚙️  Processing Method: {processing_method}")
+        logger.info(f"⏱️  Processing Time: {processing_time:.2f}s")
+        logger.info(f"📊 Technical Details:")
+        logger.info(f"   - Original Text Length: {ml_analysis['original_text_length']} chars")
+        logger.info(f"   - Processed Text Length: {ml_analysis['processed_text_length']} chars")
+        logger.info(f"   - Active Features: {ml_analysis['feature_count']}")
+        logger.info(f"   - Binary Prediction: {ml_analysis.get('binary_prediction', 'N/A')}")
+        logger.info("=" * 60)
+        
+        # Prepare response
+        response_data = {
+            'success': True,
+            'transcribed_text': transcribed_text,
+            'ml_analysis': ml_analysis,
+            'processing_info': {
+                'method': processing_method,
+                'processing_time': f"{processing_time:.2f}s",
+                'file_info': {
+                    'size': f"{file_size / 1024:.1f}KB",
+                    'format': file_extension.upper(),
+                    'duration': 'N/A'  # Could be calculated if needed
+                }
+            },
+            'emergency_alert': {
+                'sent': emergency_alert_sent,
+                'details': alert_details
+            },
+            'timestamp': datetime.datetime.now().isoformat()
+        }
+        
+        # Save voice analysis to database if needed
+        try:
+            db.save_risk_assessment(user_id, transcribed_text, {
+                'risk_level': ml_analysis['risk_level'],
+                'risk_score': ml_analysis.get('risk_score', ml_analysis['confidence'] * 100),
+                'method': 'voice_analysis',
+                'processing_method': processing_method,
+                'indicators': ml_analysis.get('indicators', {}),
+                'emergency_alert_required': ml_analysis.get('emergency_alert_required', False)
+            })
+        except Exception as db_error:
+            logger.warning(f"⚠️  Database save warning: {db_error}")
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        processing_time = time.time() - start_time
+        logger.error(f"❌ Voice processing error: {e}")
+        
+        # Clean up files in case of error
+        try:
+            if 'temp_input_path' in locals() and os.path.exists(temp_input_path):
+                os.remove(temp_input_path)
+            if 'temp_wav_path' in locals() and os.path.exists(temp_wav_path):
+                os.remove(temp_wav_path)
+        except:
+            pass
+        
+        return jsonify({
+            'success': False,
+            'error': f'Internal server error: {str(e)}',
+            'error_type': 'server_error',
+            'processing_time': f"{processing_time:.2f}s"
+        }), 500
+
 if __name__ == '__main__':
     print("🚀 Starting EmpathyWave Enhanced Chat Bot...")
     print("🤖 Loading AI models...")
@@ -696,5 +1160,6 @@ if __name__ == '__main__':
     print("🌟 Starting enhanced chat interface...")
     print("💬 Gemini AI integration enabled!")
     print("🎵 Audio analysis enabled!")
+    print("🎤 Voice recognition & ML analysis enabled!")
     
     app.run(host='0.0.0.0', port=5000, debug=True)
