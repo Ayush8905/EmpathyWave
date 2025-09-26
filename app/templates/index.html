@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depression Detection Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .input-section {
+            margin-bottom: 30px;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            resize: vertical;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .no-risk {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .at-risk {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .high-risk {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+        .resources {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+        }
+        .resources h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .resources ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .resources li {
+            margin-bottom: 5px;
+        }
+        .resources a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .resources a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Depression Detection Chatbot</h1>
+        
+        <div class="input-section">
+            <h3>Text Analysis</h3>
+            <p>Enter your thoughts or feelings to get a depression risk assessment:</p>
+            <textarea id="textInput" placeholder="Share what's on your mind..."></textarea>
+            <button onclick="analyzeText()">Analyze Text</button>
+        </div>
+        
+        <div id="result" class="result"></div>
+        
+        <div class="resources">
+            <h3>Mental Health Resources</h3>
+            <p><strong>Important:</strong> This tool is for informational purposes only and is not a substitute for professional medical advice.</p>
+            <ul>
+                <li><a href="https://www.nimh.nih.gov/health/topics/depression" target="_blank">National Institute of Mental Health - Depression</a></li>
+                <li><a href="https://www.samhsa.gov/find-help/national-helpline" target="_blank">SAMHSA National Helpline: 1-800-662-4357</a></li>
+                <li><a href="https://suicidepreventionlifeline.org/" target="_blank">National Suicide Prevention Lifeline: 988</a></li>
+                <li><a href="https://www.crisistextline.org/" target="_blank">Crisis Text Line: Text HOME to 741741</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        async function analyzeText() {
+            const textInput = document.getElementById('textInput');
+            const resultDiv = document.getElementById('result');
+            const text = textInput.value.trim();
+            
+            if (!text) {
+                alert('Please enter some text to analyze.');
+                return;
+            }
+            
+            // Show loading
+            resultDiv.className = 'result loading';
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = 'Analyzing text...';
+            
+            try {
+                const response = await fetch('/api/prediction/text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult(data);
+                } else {
+                    resultDiv.className = 'result high-risk';
+                    resultDiv.innerHTML = 'Error: ' + data.error;
+                }
+            } catch (error) {
+                resultDiv.className = 'result high-risk';
+                resultDiv.innerHTML = 'Error: ' + error.message;
+            }
+        }
+        
+        function displayResult(data) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            
+            let riskClass = 'no-risk';
+            let riskText = 'No Depression Risk';
+            
+            if (data.risk_level === 'at_risk') {
+                riskClass = 'at-risk';
+                riskText = 'At Risk';
+            } else if (data.risk_level === 'high_risk') {
+                riskClass = 'high-risk';
+                riskText = 'High Risk';
+            }
+            
+            resultDiv.className = 'result ' + riskClass;
+            resultDiv.innerHTML = `
+                <h4>Analysis Result</h4>
+                <p><strong>Risk Level:</strong> ${riskText}</p>
+                <p><strong>Confidence:</strong> ${(data.confidence * 100).toFixed(1)}%</p>
+                <p><strong>Risk Score:</strong> ${(data.risk_score * 100).toFixed(1)}%</p>
+                <p><em>Remember: This is not a medical diagnosis. Please consult with a healthcare professional if you have concerns about your mental health.</em></p>
+            `;
+        }
+    </script>
+</body>
+</html>
