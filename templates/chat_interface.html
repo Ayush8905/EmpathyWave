@@ -140,6 +140,46 @@
             transform: scale(1.1);
         }
 
+        .control-btn.active {
+            animation: pulse 2s infinite;
+        }
+
+        .control-btn.highlight {
+            animation: highlight 3s ease-in-out;
+            border: 2px solid #ffd700;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 5px rgba(72, 187, 120, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 20px rgba(72, 187, 120, 0.9);
+            }
+
+            100% {
+                box-shadow: 0 0 5px rgba(72, 187, 120, 0.7);
+            }
+        }
+
+        @keyframes highlight {
+
+            0%,
+            100% {
+                border-color: transparent;
+            }
+
+            25%,
+            75% {
+                border-color: #ffd700;
+            }
+
+            50% {
+                border-color: #ff6b35;
+            }
+        }
+
         .chat-body {
             flex: 1;
             display: flex;
@@ -560,9 +600,26 @@
                 <button class="control-btn" onclick="toggleAudioRecorder()" title="Voice Recording">
                     <i class="fas fa-microphone"></i>
                 </button>
+                <button class="control-btn" id="voiceToggleBtn" onclick="toggleVoiceMode()"
+                    title="2-Way Voice Communication">
+                    <i class="fas fa-volume-up" id="voiceToggleIcon"></i>
+                </button>
                 <button class="control-btn" onclick="logout()" title="Logout">
                     <i class="fas fa-sign-out-alt"></i>
                 </button>
+            </div>
+        </div>
+
+        <!-- Voice Mode Status Indicator -->
+        <div id="voiceModeIndicator" class="d-none">
+            <div class="alert alert-success border-0 rounded-0 m-0 text-center" style="animation: pulse 2s infinite;">
+                <div class="d-flex align-items-center justify-content-center">
+                    <i class="fas fa-volume-up me-2 fa-lg"></i>
+                    <div>
+                        <strong>🔊 2-Way Voice Communication ACTIVE</strong><br>
+                        <small>AI responses will be spoken aloud</small>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -650,6 +707,20 @@
 
                 <div class="sidebar-section">
                     <div class="sidebar-title">
+                        <i class="fas fa-volume-up"></i>
+                        Voice Communication
+                    </div>
+                    <div class="text-small">
+                        <p><strong>🎤 Voice Input:</strong> Record and analyze speech</p>
+                        <p><strong>🔊 Voice Output:</strong> AI responses with audio</p>
+                        <button class="btn btn-sm btn-outline-success mt-2" onclick="testVoiceSystem()">
+                            <i class="fas fa-test-tube"></i> Test Voice System
+                        </button>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="sidebar-title">
                         <i class="fas fa-shield-heart"></i>
                         Support Resources
                     </div>
@@ -665,17 +736,25 @@
 
         <!-- Audio Recorder -->
         <div class="audio-recorder" id="audioRecorder">
-            <div class="recording-animation">
-                <i class="fas fa-microphone fa-2x text-white"></i>
+            <div class="recording-animation" id="recordingAnimation">
+                <i class="fas fa-microphone fa-2x text-white" id="micIcon"></i>
+                <div class="voice-level-indicator" id="voiceLevelIndicator" style="margin-top: 10px;">
+                    <small class="text-white">🔇 Listening...</small>
+                </div>
             </div>
             <h5>Recording Your Voice...</h5>
-            <p>Speak naturally and I'll analyze your audio for emotional patterns</p>
+            <p>🎤 Speak naturally - will auto-stop when you finish talking</p>
+            <p><small class="text-muted">💡 Smart detection - won't cut off mid-speech</small></p>
             <div class="mt-3">
                 <button class="btn btn-danger me-2" onclick="stopRecording()">
                     <i class="fas fa-stop"></i> Stop Recording
                 </button>
-                <button class="btn btn-secondary" onclick="cancelRecording()">
+                <button class="btn btn-secondary me-2" onclick="cancelRecording()">
                     <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-warning" onclick="stopVoiceConversation()" style="display: none;"
+                    id="stopVoiceConversationBtn">
+                    <i class="fas fa-hand-paper"></i> Stop Voice Chat
                 </button>
             </div>
         </div>
@@ -717,6 +796,23 @@
         let audioChunks = [];
         let isRecording = false;
 
+        // 2-way voice communication variables
+        let voiceEnabled = false;
+        let currentAudio = null;
+        let isVoiceConversation = false;  // Track if we're in a voice conversation
+
+        // Voice Activity Detection variables
+        let audioContext;
+        let analyser;
+        let silenceTimer;
+        let isAutoRecording = false;
+        const SILENCE_THRESHOLD = 0.025; // Medium threshold - balanced sensitivity
+        const SILENCE_DURATION = 800;    // 800ms of consecutive silence before auto-stop
+        const MIN_RECORDING_TIME = 1000;  // Minimum 1 second recording
+        const SILENCE_BUFFER_COUNT = 3;   // Need 3 consecutive silence detections
+        let recordingStartTime;
+        let consecutiveSilenceCount = 0;  // Track consecutive silence detections
+
         // Auto-resize textarea
         document.getElementById('messageInput').addEventListener('input', function () {
             this.style.height = 'auto';
@@ -730,16 +826,25 @@
             }
         }
 
-        async function sendMessage() {
+        async function sendMessage(messageText = null) {
+            console.log('📤 sendMessage called with:', messageText);
             const messageInput = document.getElementById('messageInput');
-            const message = messageInput.value.trim();
+            const message = messageText || messageInput.value.trim();
+            console.log('📝 Final message to send:', message);
 
-            if (!message) return;
+            if (!message) {
+                console.log('❌ No message to send, returning');
+                return;
+            }
 
             // Add user message to chat
             addMessage('user', message);
-            messageInput.value = '';
-            messageInput.style.height = 'auto';
+
+            // Only clear input if we're not using voice transcription
+            if (!messageText) {
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+            }
 
             // Show typing indicator
             showTypingIndicator();
@@ -750,7 +855,10 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify({
+                        message: message,
+                        enable_voice: voiceEnabled
+                    })
                 });
 
                 const data = await response.json();
@@ -763,6 +871,13 @@
                 } else {
                     addMessage('bot', data.response);
                     updateAnalysis(data.analysis);
+
+                    // Handle voice response if available
+                    if (voiceEnabled && data.voice_response && data.voice_response.available) {
+                        playVoiceResponse(data.voice_response.audio_path);
+                    } else if (voiceEnabled && data.voice_response && !data.voice_response.available) {
+                        console.warn('Voice response requested but not available:', data.voice_response.error);
+                    }
 
                     // Check for emergency alert
                     if (data.analysis && data.analysis.emergency_alert && data.analysis.emergency_alert.sent) {
@@ -903,7 +1018,11 @@
                     mediaRecorder.start();
                     isRecording = true;
                     audioRecorder.style.display = 'block';
-                    showNotification('🎤 Recording started - Speak clearly', 'success');
+
+                    // Start voice activity detection for auto-stop
+                    startVoiceActivityDetection(stream);
+
+                    showNotification('🎤 Recording started - Smart detection prevents mid-speech cutoffs', 'success');
 
                 } catch (error) {
                     showNotificationWithDetails('Microphone access denied', 'Please allow microphone access and try again', 'error');
@@ -914,6 +1033,7 @@
 
         function stopRecording() {
             if (mediaRecorder && isRecording) {
+                stopVoiceActivityDetection();
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
                 isRecording = false;
@@ -924,12 +1044,143 @@
 
         function cancelRecording() {
             if (mediaRecorder && isRecording) {
+                stopVoiceActivityDetection();
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
                 isRecording = false;
                 audioChunks = [];
                 document.getElementById('audioRecorder').style.display = 'none';
                 showNotification('Recording cancelled', 'warning');
+            }
+        }
+
+        function stopVoiceConversation() {
+            // Stop current recording if active
+            if (isRecording) {
+                cancelRecording();
+            }
+
+            // Exit voice conversation mode
+            isVoiceConversation = false;
+            console.log('🎤 Voice conversation manually stopped');
+            showNotification('🔇 Voice conversation ended - switched to text mode', 'info');
+
+            // Hide the stop button
+            document.getElementById('stopVoiceConversationBtn').style.display = 'none';
+        }
+
+        // Voice Activity Detection - monitors audio levels to detect silence
+        function startVoiceActivityDetection(stream) {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                const microphone = audioContext.createMediaStreamSource(stream);
+
+                analyser.smoothingTimeConstant = 0.8;
+                analyser.fftSize = 1024;
+                microphone.connect(analyser);
+
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+
+                recordingStartTime = Date.now();
+                isAutoRecording = true;
+                consecutiveSilenceCount = 0;  // Reset silence counter
+
+                function checkAudioLevel() {
+                    if (!isAutoRecording || !isRecording) return;
+
+                    analyser.getByteFrequencyData(dataArray);
+
+                    // Calculate average volume level
+                    let sum = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        sum += dataArray[i];
+                    }
+                    const averageLevel = sum / bufferLength / 255; // Normalize to 0-1
+
+                    // Check if user is speaking (above threshold)
+                    if (averageLevel > SILENCE_THRESHOLD) {
+                        // User is speaking - reset silence tracking
+                        consecutiveSilenceCount = 0;
+                        if (silenceTimer) {
+                            clearTimeout(silenceTimer);
+                            silenceTimer = null;
+                        }
+
+                        // Update visual feedback
+                        updateVoiceActivityIndicator(averageLevel, true);
+                        console.log(`🎤 Voice detected: ${(averageLevel * 100).toFixed(1)}%`);
+                    } else {
+                        // User is silent - increment silence counter
+                        consecutiveSilenceCount++;
+                        updateVoiceActivityIndicator(averageLevel, false);
+
+                        // Only start silence timer after consecutive silence detections
+                        if (consecutiveSilenceCount >= SILENCE_BUFFER_COUNT && !silenceTimer) {
+                            const recordingDuration = Date.now() - recordingStartTime;
+
+                            // Only start silence timer if minimum recording time has passed
+                            if (recordingDuration >= MIN_RECORDING_TIME) {
+                                console.log(`🔇 ${consecutiveSilenceCount} consecutive silence detections, starting timer...`);
+
+                                silenceTimer = setTimeout(() => {
+                                    if (isRecording && isAutoRecording) {
+                                        console.log('🔇 Auto-stopping recording due to sustained silence');
+                                        showNotification('✅ Auto-submitting your message...', 'success');
+                                        stopRecording();
+                                    }
+                                }, SILENCE_DURATION);
+                            }
+                        }
+                    }
+
+                    // Continue monitoring
+                    if (isAutoRecording && isRecording) {
+                        requestAnimationFrame(checkAudioLevel);
+                    }
+                }
+
+                // Start monitoring
+                checkAudioLevel();
+
+            } catch (error) {
+                console.error('Voice activity detection failed:', error);
+                showNotification('⚠️ Auto-detection unavailable, use manual stop', 'warning');
+            }
+        }
+
+        function stopVoiceActivityDetection() {
+            isAutoRecording = false;
+            consecutiveSilenceCount = 0;  // Reset silence counter
+
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close();
+            }
+        }
+
+        function updateVoiceActivityIndicator(level, isActive) {
+            const indicator = document.getElementById('voiceLevelIndicator');
+            const micIcon = document.getElementById('micIcon');
+
+            if (!indicator || !micIcon) return;
+
+            if (isActive) {
+                const intensity = Math.min(level * 5, 1); // Scale up for better visibility
+                const percentage = Math.round(intensity * 100);
+
+                indicator.innerHTML = `<small class="text-white">🎤 Speaking... ${percentage}%</small>`;
+                micIcon.style.transform = `scale(${1 + intensity * 0.3})`;
+                micIcon.style.color = `hsl(${120 * intensity}, 100%, 70%)`;
+            } else {
+                indicator.innerHTML = `<small class="text-white">🔇 Listening...</small>`;
+                micIcon.style.transform = 'scale(1)';
+                micIcon.style.color = 'white';
             }
         }
 
@@ -1121,6 +1372,34 @@
                     processing: processingInfo.method,
                     emergencyAlert: data.emergency_alert?.sent || false
                 });
+
+                // 🔥 NEW: Automatically send transcribed text to chatbot for conversational response
+                console.log('🤖 Sending transcribed text to chatbot for response...');
+                showNotification('🤖 Getting AI response to your voice message...', 'info');
+
+                // Enable voice mode automatically for voice-to-voice conversation
+                if (!voiceEnabled) {
+                    console.log('🔊 Auto-enabling voice mode for voice conversation');
+                    toggleVoiceMode();
+                }
+
+                // Mark that we're in a voice conversation
+                isVoiceConversation = true;
+                console.log('🎤 Voice conversation mode activated');
+
+                // Show the stop voice conversation button when recording
+                setTimeout(() => {
+                    const stopBtn = document.getElementById('stopVoiceConversationBtn');
+                    if (stopBtn && isRecording) {
+                        stopBtn.style.display = 'inline-block';
+                    }
+                }, 500);
+
+                // Add a small delay to allow UI to update
+                setTimeout(() => {
+                    console.log('🚀 Calling sendMessage with:', transcribedText);
+                    sendMessage(transcribedText);
+                }, 1000);
             } catch (error) {
                 hideTypingIndicator();
                 addMessage('bot', '❌ Network error during voice processing. Please check your connection and try again.');
@@ -1333,8 +1612,188 @@
             // Show welcome notification
             setTimeout(() => {
                 showNotification('Welcome to EmpathyWave! Start chatting for AI-powered mental health support.', 'success');
-            }, 1000);
+
+                // Add welcome message with voice instructions
+                addMessage('bot', `🎉 <strong>Welcome to EmpathyWave!</strong><br><br>
+                    Your AI-powered mental health assistant with advanced features:<br><br>
+                    🎤 <strong>Voice Input:</strong> Click the microphone to record your voice<br>
+                    🔊 <strong>2-Way Voice Communication:</strong> Click the volume button (🔊) to enable AI voice responses<br>
+                    🧠 <strong>AI Analysis:</strong> Real-time depression risk assessment<br>
+                    🚨 <strong>Emergency Alerts:</strong> Automatic parent/guardian notifications for safety<br><br>
+                    💡 <strong>Try the voice feature:</strong> Click the 🔊 button in the header to start hearing my responses!`);
+
+                // Highlight the voice button to draw attention
+                setTimeout(() => {
+                    const voiceBtn = document.getElementById('voiceToggleBtn');
+                    if (voiceBtn) {
+                        voiceBtn.classList.add('highlight');
+                        setTimeout(() => {
+                            voiceBtn.classList.remove('highlight');
+                        }, 3000);
+                    }
+                }, 2000);
+            }, 1500);
         });
+
+        // Voice System Test Function
+        async function testVoiceSystem() {
+            showNotification('🧪 Testing voice system...', 'info');
+
+            try {
+                // Test TTS API
+                const response = await fetch('/api/text-to-speech', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: "Hello! This is a test of the 2-way voice communication system. If you can hear this, everything is working perfectly!",
+                        use_online: false
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showNotification('✅ TTS API working! Playing test audio...', 'success');
+
+                    // Play the test audio
+                    const testAudio = new Audio(result.audio_path);
+                    testAudio.onplay = () => showNotification('🔊 Test audio playing...', 'info');
+                    testAudio.onended = () => showNotification('✅ Voice test completed successfully!', 'success');
+                    testAudio.onerror = () => showNotification('❌ Audio playback failed', 'error');
+
+                    await testAudio.play();
+
+                    // Add test message to chat
+                    addMessage('bot', '🧪 <strong>Voice System Test</strong><br><br>✅ Text-to-Speech API: Working<br>✅ Audio Generation: Success<br>✅ Audio Playback: Active<br><br>Your 2-way voice communication is ready to use!');
+
+                } else {
+                    showNotification('❌ TTS API Error: ' + result.error, 'error');
+                    addMessage('bot', '❌ <strong>Voice System Test Failed</strong><br><br>Error: ' + result.error);
+                }
+
+            } catch (error) {
+                showNotification('❌ Voice test failed: ' + error.message, 'error');
+                addMessage('bot', '❌ <strong>Voice System Test Failed</strong><br><br>Error: ' + error.message + '<br><br>Please check that the server is running and try again.');
+            }
+        }
+
+        // 2-Way Voice Communication Functions
+        function toggleVoiceMode() {
+            voiceEnabled = !voiceEnabled;
+            const toggleBtn = document.getElementById('voiceToggleBtn');
+            const toggleIcon = document.getElementById('voiceToggleIcon');
+            const indicator = document.getElementById('voiceModeIndicator');
+
+            if (voiceEnabled) {
+                toggleBtn.classList.add('active');
+                toggleBtn.style.backgroundColor = '#48bb78';
+                toggleBtn.style.color = 'white';
+                toggleIcon.className = 'fas fa-volume-up';
+                indicator.classList.remove('d-none');
+                showNotification('🔊 2-Way Voice Communication Enabled', 'success');
+
+                // Add a message to chat explaining the feature
+                addMessage('bot', '🔊 <strong>2-Way Voice Communication Activated!</strong><br><br>Now when I respond to your messages, you\'ll hear my voice as well as see the text. Try sending me a message or using voice recording!');
+            } else {
+                toggleBtn.classList.remove('active');
+                toggleBtn.style.backgroundColor = '';
+                toggleBtn.style.color = '';
+                toggleIcon.className = 'fas fa-volume-mute';
+                indicator.classList.add('d-none');
+                showNotification('🔇 Voice Responses Disabled', 'info');
+
+                // Stop any currently playing audio
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio = null;
+                }
+
+                // Exit voice conversation mode
+                isVoiceConversation = false;
+                console.log('🎤 Voice conversation mode deactivated');
+            }
+        }
+
+        function playVoiceResponse(audioPath) {
+            if (!voiceEnabled) return;
+
+            try {
+                // Stop any currently playing audio
+                if (currentAudio) {
+                    currentAudio.pause();
+                }
+
+                // Show loading indicator
+                showNotification('🔊 Loading voice response...', 'info');
+
+                // Create new audio element
+                currentAudio = new Audio(audioPath);
+
+                // Handle audio events
+                currentAudio.onloadstart = () => {
+                    console.log('🔊 Loading voice response...');
+                };
+
+                currentAudio.oncanplay = () => {
+                    console.log('🔊 Voice response ready to play');
+                };
+
+                currentAudio.onplay = () => {
+                    console.log('🔊 Playing voice response');
+                    showNotification('🔊 AI is speaking...', 'success');
+                };
+
+                currentAudio.onended = () => {
+                    console.log('🔊 Voice response finished');
+                    showNotification('✅ Voice response completed', 'success');
+                    currentAudio = null;
+
+                    // 🎤 AUTO-START MICROPHONE after AI response (only in voice conversation mode)
+                    if (isVoiceConversation && voiceEnabled) {
+                        console.log('🎤 Auto-starting microphone for continuous conversation...');
+                        showNotification('🎤 Your turn! Microphone starting in 2 seconds...', 'success');
+
+                        // Small delay to let the user prepare
+                        setTimeout(() => {
+                            showNotification('🎤 Recording started - Speak now!', 'info');
+                            toggleAudioRecorder();
+                        }, 2000);
+                    } else {
+                        console.log('🎤 Voice conversation mode not active, not auto-starting microphone');
+                    }
+                };
+
+                currentAudio.onerror = (error) => {
+                    console.error('🔊 Audio playback error:', error);
+                    showNotification('❌ Failed to play voice response', 'error');
+                    currentAudio = null;
+                };
+
+                // Play the audio
+                currentAudio.play().catch(error => {
+                    console.error('🔊 Play error:', error);
+                    showNotification('❌ Voice playback failed - trying fallback', 'error');
+
+                    // Fallback: try browser's built-in speech synthesis
+                    if ('speechSynthesis' in window) {
+                        // Extract text from the latest bot message for TTS fallback
+                        const botMessages = document.querySelectorAll('.message.bot .message-content p');
+                        if (botMessages.length > 0) {
+                            const lastMessage = botMessages[botMessages.length - 1].innerText;
+                            const utterance = new SpeechSynthesisUtterance(lastMessage);
+                            utterance.rate = 0.8;
+                            utterance.pitch = 1.1;
+                            speechSynthesis.speak(utterance);
+                            showNotification('🔊 Using browser speech synthesis', 'info');
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('🔊 Voice playback error:', error);
+                showNotification('❌ Voice playback failed', 'error');
+            }
+        }
     </script>
 </body>
 

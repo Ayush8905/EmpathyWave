@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash, send_from_directory
 import joblib
 import os
 import librosa
@@ -23,6 +23,15 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import wave
 import io
+
+# Text-to-Speech Imports for 2-way communication
+try:
+    import pyttsx3
+    import pygame
+    from gtts import gTTS
+    VOICE_AVAILABLE = True
+except ImportError as e:
+    VOICE_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -64,6 +73,18 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Gemini model: {str(e)}")
     gemini_model = None
+
+# Initialize Voice System
+voice_engine = None
+if VOICE_AVAILABLE:
+    try:
+        voice_engine = pyttsx3.init()
+        voice_engine.setProperty('rate', 150)  # Speed of speech
+        voice_engine.setProperty('volume', 0.9)  # Volume level
+        logger.info("Voice engine initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize voice engine: {str(e)}")
+        voice_engine = None
 
 # Global variables for models
 text_model_data = None
@@ -605,11 +626,43 @@ def chat():
             'details': alert_details
         }
         
-        return jsonify({
+        # Check if voice response is requested
+        enable_voice = data.get('enable_voice', False)
+        voice_audio_path = None
+        
+        if enable_voice and VOICE_AVAILABLE:
+            # Generate voice response
+            tts_result = text_to_speech(gemini_response, use_online=False)
+            if tts_result['success']:
+                voice_audio_path = tts_result['audio_path']
+                logger.info(f"🔊 Voice response generated: {voice_audio_path}")
+            else:
+                logger.warning(f"Voice response failed: {tts_result['error']}")
+        
+        response_data = {
             'response': gemini_response,
             'analysis': combined_analysis,
             'user_id': user_id
-        })
+        }
+        
+        # Add voice response if available
+        if voice_audio_path:
+            # Convert to URL path for frontend access
+            if voice_audio_path.startswith('uploads/'):
+                audio_url = '/' + voice_audio_path
+            else:
+                audio_url = '/uploads/' + os.path.basename(voice_audio_path)
+            response_data['voice_response'] = {
+                'audio_path': audio_url,
+                'available': True
+            }
+        elif enable_voice:
+            response_data['voice_response'] = {
+                'available': False,
+                'error': 'Voice synthesis not available'
+            }
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
@@ -715,6 +768,58 @@ def preprocess_text_for_ml(text):
     text = text.strip()
     
     return text
+
+def text_to_speech(text, use_online=False):
+    """Convert text to speech audio
+    
+    Args:
+        text: Text to convert to speech
+        use_online: Whether to use gTTS (online) or pyttsx3 (offline)
+    
+    Returns:
+        dict: Success status and audio file path or error message
+    """
+    if not VOICE_AVAILABLE:
+        return {"success": False, "error": "Voice functionality not available"}
+    
+    try:
+        # Clean and prepare text
+        clean_text = text.strip()
+        if not clean_text:
+            return {"success": False, "error": "No text provided"}
+        
+        # Limit text length for performance
+        if len(clean_text) > 500:
+            clean_text = clean_text[:500] + "..."
+        
+        if use_online:
+            # Use Google Text-to-Speech (requires internet)
+            try:
+                tts = gTTS(text=clean_text, lang='en', slow=False)
+                audio_path = os.path.join("uploads", f"tts_{int(time.time())}.mp3")
+                tts.save(audio_path)
+                return {"success": True, "audio_path": audio_path, "type": "file"}
+            except Exception as e:
+                logger.warning(f"gTTS failed, falling back to pyttsx3: {str(e)}")
+                use_online = False
+        
+        if not use_online and voice_engine:
+            # Use offline pyttsx3 (no internet required)
+            try:
+                # Create a temporary file for audio
+                audio_path = os.path.join("uploads", f"tts_{int(time.time())}.wav")
+                voice_engine.save_to_file(clean_text, audio_path)
+                voice_engine.runAndWait()
+                return {"success": True, "audio_path": audio_path, "type": "file"}
+            except Exception as e:
+                logger.error(f"pyttsx3 TTS error: {str(e)}")
+                return {"success": False, "error": f"TTS engine error: {str(e)}"}
+        
+        return {"success": False, "error": "No TTS engine available"}
+        
+    except Exception as e:
+        logger.error(f"Text-to-speech error: {str(e)}")
+        return {"success": False, "error": f"TTS error: {str(e)}"}
 
 def speech_to_text(audio_file_path):
     """
@@ -1146,6 +1251,66 @@ def voice_to_text():
             'error_type': 'server_error',
             'processing_time': f"{processing_time:.2f}s"
         }), 500
+
+@app.route('/api/text-to-speech', methods=['POST'])
+@login_required
+def api_text_to_speech():
+    """API endpoint for text-to-speech conversion"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'text' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'No text provided'
+            }), 400
+        
+        text = data['text'].strip()
+        if not text:
+            return jsonify({
+                'success': False,
+                'error': 'Empty text provided'
+            }), 400
+        
+        # Optional parameters
+        use_online = data.get('use_online', False)
+        
+        # Convert text to speech
+        result = text_to_speech(text, use_online=use_online)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'audio_path': result['audio_path'],
+                'type': result['type'],
+                'message': 'Audio generated successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"TTS API error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Internal server error: {str(e)}'
+        }), 500
+
+@app.route('/uploads/<filename>')
+def serve_audio_file(filename):
+    """Serve generated audio files"""
+    try:
+        return send_from_directory('uploads', filename)
+    except Exception as e:
+        logger.error(f"Error serving audio file: {str(e)}")
+        return jsonify({'error': 'File not found'}), 404
+
+@app.route('/voice-demo')
+def voice_demo():
+    """Demo page for 2-way voice communication"""
+    return render_template('voice_demo.html')
 
 if __name__ == '__main__':
     print("🚀 Starting EmpathyWave Enhanced Chat Bot...")
